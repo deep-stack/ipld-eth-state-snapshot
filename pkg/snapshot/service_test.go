@@ -94,15 +94,18 @@ func TestRecovery(t *testing.T) {
 
 		// Max number of children of a node in trie
 		const maxChildren = 16
+		const maxChildrenWithSiblings = 15
+
 		expectedPublishStateNodeCalls := math.Min(
-			16,
+			maxChildrenWithSiblings,
 			math.Min(
 				float64(workers),
 				float64(len(fixt.Block1_StateNodePaths)),
 			),
 		)
 		pub.EXPECT().PublishStateNode(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Times(int(expectedPublishStateNodeCalls)).
+			MinTimes(int(expectedPublishStateNodeCalls)).
+			MaxTimes(maxChildren).
 			DoAndReturn(failingPublishStateNode)
 
 		config := testConfig(fixt.ChaindataPath, fixt.AncientdataPath)
@@ -128,7 +131,17 @@ func TestRecovery(t *testing.T) {
 			t.Fatal("cannot stat recovery file:", err)
 		}
 
+		pub, tx = makeMocks(t)
+		pub.EXPECT().PublishHeader(gomock.Any()).AnyTimes()
+		pub.EXPECT().BeginTx().Return(tx, nil).AnyTimes()
+		pub.EXPECT().PrepareTxForBatch(gomock.Any(), gomock.Any()).Return(tx, nil).AnyTimes()
+		tx.EXPECT().Commit().AnyTimes()
 		pub.EXPECT().PublishStateNode(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+		service, err = NewSnapshotService(edb, pub, recovery)
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		err = service.CreateSnapshot(params)
 		if err != nil {
 			t.Fatal(err)
@@ -144,7 +157,7 @@ func TestRecovery(t *testing.T) {
 		}
 	}
 
-	testCases := []int{1, 4, 32}
+	testCases := []int{1, 4, 16, 32}
 	for _, tc := range testCases {
 		t.Run("case", func(t *testing.T) { runCase(t, tc) })
 	}
