@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"errors"
+	"math"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -45,8 +46,7 @@ func TestCreateSnapshot(t *testing.T) {
 		pub.EXPECT().PrepareTxForBatch(gomock.Any(), gomock.Any()).Return(tx, nil).
 			AnyTimes()
 		pub.EXPECT().PublishStateNode(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			// Use MinTimes as duplicate nodes are expected at boundaries
-			MinTimes(len(fixt.Block1_StateNodePaths))
+			Times(len(fixt.Block1_StateNodePaths))
 
 		// TODO: fixtures for storage node
 		// pub.EXPECT().PublishStorageNode(gomock.Eq(fixt.StorageNode), gomock.Eq(int64(0)), gomock.Any())
@@ -90,10 +90,20 @@ func TestRecovery(t *testing.T) {
 		pub.EXPECT().PublishHeader(gomock.Any()).AnyTimes()
 		pub.EXPECT().BeginTx().Return(tx, nil).AnyTimes()
 		pub.EXPECT().PrepareTxForBatch(gomock.Any(), gomock.Any()).Return(tx, nil).AnyTimes()
-		pub.EXPECT().PublishStateNode(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Times(workers).
-			DoAndReturn(failingPublishStateNode)
 		tx.EXPECT().Commit().AnyTimes()
+
+		// Max number of children of a node in trie
+		const maxChildren = 16
+		expectedPublishStateNodeCalls := math.Min(
+			16,
+			math.Min(
+				float64(workers),
+				float64(len(fixt.Block1_StateNodePaths)),
+			),
+		)
+		pub.EXPECT().PublishStateNode(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Times(int(expectedPublishStateNodeCalls)).
+			DoAndReturn(failingPublishStateNode)
 
 		config := testConfig(fixt.ChaindataPath, fixt.AncientdataPath)
 		edb, err := NewLevelDB(config.Eth)
