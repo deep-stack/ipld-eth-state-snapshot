@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/golang/mock/gomock"
 
 	fixt "github.com/vulcanize/ipld-eth-state-snapshot/fixture"
@@ -54,7 +55,8 @@ func TestCreateSnapshot(t *testing.T) {
 		tx.EXPECT().Commit().
 			Times(workers)
 
-		config := testConfig(fixt.ChaindataPath, fixt.AncientdataPath)
+		chainDataPath, ancientDataPath := fixt.GetChainDataPath("../../fixture/chaindata")
+		config := testConfig(chainDataPath, ancientDataPath)
 		edb, err := NewLevelDB(config.Eth)
 		if err != nil {
 			t.Fatal(err)
@@ -68,6 +70,83 @@ func TestCreateSnapshot(t *testing.T) {
 		}
 
 		params := SnapshotParams{Height: 1, Workers: uint(workers)}
+		err = service.CreateSnapshot(params)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	testCases := []int{1, 4, 16, 32}
+	for _, tc := range testCases {
+		t.Run("case", func(t *testing.T) { runCase(t, tc) })
+	}
+}
+
+func XTestAccountSelectiveSnapshot(t *testing.T) {
+	runCase := func(t *testing.T, workers int) {
+		pub, tx := makeMocks(t)
+		pub.EXPECT().PublishHeader(gomock.Eq(&fixt.TxChainBlock45_Header))
+		pub.EXPECT().BeginTx().Return(tx, nil).
+			Times(workers)
+		pub.EXPECT().PrepareTxForBatch(gomock.Any(), gomock.Any()).Return(tx, nil).
+			AnyTimes()
+		pub.EXPECT().PublishCode(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(tx)).
+			AnyTimes()
+		tx.EXPECT().Commit().
+			Times(workers)
+
+		chainDataPath, ancientDataPath := fixt.GetChainDataPath("../../fixture/tx_chaindata")
+		config := testConfig(chainDataPath, ancientDataPath)
+		edb, err := NewLevelDB(config.Eth)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer edb.Close()
+
+		recovery := filepath.Join(t.TempDir(), "recover.csv")
+		service, err := NewSnapshotService(edb, pub, recovery)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		selectedAccounts := map[common.Address]struct{}{
+			common.HexToAddress("0x1ca7c995f8eF0A2989BbcE08D5B7Efe50A584aa1"): {},
+		}
+		params := SnapshotParams{
+			Height:           fixt.TxChainSnapshotHeight,
+			Workers:          uint(workers),
+			WatchedAddresses: selectedAccounts,
+		}
+
+		selectedAccountsStateNodePaths := [][]byte{
+			{},
+			{9},
+		}
+		pub.EXPECT().PublishStateNode(
+			gomock.Any(),
+			gomock.Any(),
+			gomock.Eq(new(big.Int).SetUint64(fixt.TxChainSnapshotHeight)),
+			gomock.Eq(tx),
+		).Do(func(node *snapt.Node, _ string, _ *big.Int, _ snapt.Tx) error {
+			// TODO: Check nodes published
+			return nil
+		}).
+			Times(len(selectedAccountsStateNodePaths)).
+			AnyTimes()
+
+		selectedAccountsStorageNodePaths := [][]byte{
+			{},
+			{2},
+			{11},
+		}
+		pub.EXPECT().PublishStorageNode(
+			gomock.Any(),
+			gomock.Any(),
+			gomock.Eq(new(big.Int).SetUint64(fixt.TxChainSnapshotHeight)),
+			gomock.Any(),
+			gomock.Eq(tx),
+		).Times(len(selectedAccountsStorageNodePaths))
+
 		err = service.CreateSnapshot(params)
 		if err != nil {
 			t.Fatal(err)
@@ -108,7 +187,8 @@ func TestRecovery(t *testing.T) {
 			MaxTimes(maxChildren).
 			DoAndReturn(failingPublishStateNode)
 
-		config := testConfig(fixt.ChaindataPath, fixt.AncientdataPath)
+		chainDataPath, ancientDataPath := fixt.GetChainDataPath("../../fixture/chaindata")
+		config := testConfig(chainDataPath, ancientDataPath)
 		edb, err := NewLevelDB(config.Eth)
 		if err != nil {
 			t.Fatal(err)

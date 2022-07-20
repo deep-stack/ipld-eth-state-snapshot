@@ -357,3 +357,13 @@ var Block1_StateNodePaths = [][]byte{
 	[]byte{15, 14},
 	[]byte{15, 15},
 }
+
+var TxChainSnapshotHeight = uint64(45)
+
+var TxChainBlock45_StateNodePaths = [][]byte{
+	[]byte{},
+	[]byte{6},
+	[]byte{9},
+	[]byte{10},
+	[]byte{14},
+}
